@@ -2,7 +2,16 @@
 #include<string>
 #include<unistd.h>
 #include<regex>
+#include<sys/ipc.h>
+#include<sys/shm.h>
+#include<new>
+#define key 191971;
 using namespace std;
+struct sharedClasses{
+    depositClass deposit;
+    withdrawClass withdraw;
+    error ERROR;
+};
 class error{
     public:
     int errorCode;
@@ -39,9 +48,12 @@ class withdrawClass{
             // }
             // return true;
         }
-    withdrawClass(double amount,double balance, int accountNo){
+    withdrawClass(double amount,int accountNo){
         this->amount = amount;
         this->accountNo = accountNo;
+    }
+    withdrawClass(){
+        amount =-1;//so that defaultly returns false (since amount =-1);
     }
 };
 class userDetails{
@@ -50,6 +62,8 @@ class userDetails{
         int age;
         unsigned int accountNo;
         string password;
+        double balance;
+        string pin;
         userDetails(string name,int accountNo){
             this->name = name;
             this->accountNo = accountNo;
@@ -63,8 +77,6 @@ class userDetails{
 };
 class user: private userDetails{
     private:
-            double balance;
-            string pin;
         bool setPin(string pinVar){
             const regex pattern("^[0-9]+$");//check if pinVar contains only digits
             if(pinVar.length()!= 4 ){//chec pin lenght == 4
@@ -74,17 +86,17 @@ class user: private userDetails{
             return false;
             return std::stoll(pinVar) > 0;//chec if pinVar contained int is +ve
         }
-        bool deposit(double amount){
-            depositClass *tempDeposit = new depositClass(amount,this->accountNo);//asks for authentication from bank and returns T/F
-            if(tempDeposit->authenticate()){//if authenticated deposits amount
-                balance =balance+amount;
+        bool deposit(double amount,sharedClasses* request){
+            new(&(request->deposit)) depositClass(amount,this->accountNo);//writes amount and account no to shared memory deposit class
+            if(request->deposit.authenticate()){//if authenticated deposits amount
+                balance =balance+amount;//
                 return true;
             }
             return false;
         }
-        bool withdraw(double amount){
-            withdrawClass *tempWithdraw = new withdrawClass(amount,this->balance,this->accountNo);//asks for authentication from bank and returns T/F
-            if(tempWithdraw->authenticate()){//if authenticated withdraws amount
+        bool withdraw(double amount,sharedClasses* request){
+            new(&(request->withdraw)) withdrawClass(amount,this->accountNo);//writes amount and account no to shared memory withdraw class
+            if(request->withdraw.authenticate()){//if authenticated withdraws amount
                 balance =balance-amount;
                 return true;
             }

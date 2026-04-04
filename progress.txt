@@ -1,3 +1,7 @@
-inside user -> adduser methode :
-    need to modify when age<18
+inside user ->
+    adduser methode :
+        need to modify when age<18
+    deposit method
+        change so that bank modify balance in a file an user read from it
 need the logic to assign account no
+
