@@ -5,3 +5,6 @@ inside user ->
         change so that bank modify balance in a file an user read from it
 need the logic to assign account no
 
+db.txt format:
+    AccountNumber,Name,Age,Balance,Password,Pin
+

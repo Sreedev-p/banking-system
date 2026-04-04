@@ -64,6 +64,15 @@ class userDetails{
         string password;
         double balance;
         string pin;
+    public:
+        userDetails(unsigned int accountNumber,string name,int age,double balance,string password,string pin){
+            accountNo = accountNumber;
+            this->name =name;
+            this->age =age;
+            this->balance =balance;
+            this->password=password;
+            this->pin= pin;
+        }
         userDetails(string name,int accountNo){
             this->name = name;
             this->accountNo = accountNo;
