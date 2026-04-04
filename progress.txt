@@ -1,0 +1,3 @@
+inside user -> adduser methode :
+    need to modify when age<18
+need the logic to assign account no
