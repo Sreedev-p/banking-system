@@ -8,3 +8,13 @@ need the logic to assign account no
 db.txt format:
     AccountNumber,Name,Age,Balance,Password,Pin
 
+want to make the loading process executed by a thread
+
+OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW};
+
+add ban authentication to 
+login
+create user
+
+init:
+    sem,shm,mapload

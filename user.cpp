@@ -5,13 +5,12 @@
 #include<sys/ipc.h>
 #include<sys/shm.h>
 #include<new>
+#include<sys/sem.h>
+#define semKey 124563
 #define key 191971;
 using namespace std;
-struct sharedClasses{
-    depositClass deposit;
-    withdrawClass withdraw;
-    error ERROR;
-};
+enum OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW,NEW};
+enum channelType{INT,STRING,DOUBLE,EMPTY};
 class error{
     public:
     int errorCode;
@@ -22,12 +21,6 @@ class depositClass{
         double amount;
         int accountNo;
     public:
-        bool authenticate(){
-            if(amount <0){
-                return false;
-            }
-            return true;
-        }
     depositClass(double amount, int accountNo){
         this->amount = amount;
         this->accountNo = accountNo;
@@ -42,12 +35,6 @@ class withdrawClass{
         double amount;
         int accountNo;
     public:
-        bool authenticate(){
-            // if(amount > balance || amount <0){
-            //     return false;
-            // }
-            // return true;
-        }
     withdrawClass(double amount,int accountNo){
         this->amount = amount;
         this->accountNo = accountNo;
@@ -55,6 +42,20 @@ class withdrawClass{
     withdrawClass(){
         amount =-1;//so that defaultly returns false (since amount =-1);
     }
+};
+struct sharedClasses{
+    depositClass deposit;
+    withdrawClass withdraw;
+    error ERROR;
+
+    bool req;//request active or not
+    channelType channel;
+    int intChannel;
+    char stringChannel[100];
+    double doubleChannel;
+    OperationType operation;//tell bank what operation the user is reuesting
+    bool status;//tells if operation completed or not
+    bool success;//tells if operation failed or nor
 };
 class userDetails{
     protected:  
@@ -97,19 +98,24 @@ class user: private userDetails{
         }
         bool deposit(double amount,sharedClasses* request){
             new(&(request->deposit)) depositClass(amount,this->accountNo);//writes amount and account no to shared memory deposit class
-            if(request->deposit.authenticate()){//if authenticated deposits amount
-                balance =balance+amount;//
+            request->operation = DEPOSIT;
+            if(request->status){//if authenticated deposits amount and bank updated balance
                 return true;
             }
-            return false;
+            else{
+                //check error code given
+                return false;
+            }
         }
         bool withdraw(double amount,sharedClasses* request){
             new(&(request->withdraw)) withdrawClass(amount,this->accountNo);//writes amount and account no to shared memory withdraw class
-            if(request->withdraw.authenticate()){//if authenticated withdraws amount
-                balance =balance-amount;
+            if(request->status){//if authenticated withdraws amount balance will be updated
                 return true;
             }
-            return false;
+            else{
+                //check error code
+                return false;
+            }
         }
         bool setPassword(string word){
             if(word.length()<5){
@@ -127,8 +133,12 @@ class user: private userDetails{
             }
             return false;
         }
-        int assignAccountNumber(){
-            return 20;
+        int assignAccountNumber(sharedClasses* request){
+            request->req =true;
+            request->status=false;
+            request->operation= NEW;//to get assigned new account number from bank
+            //wait for status to be true;
+
         }
     public:
         bool login(int accountNo,string pin){
@@ -226,6 +236,7 @@ int homepage(){
     cin>>choice;
     return choice;
 }
+
 int main(){
     user userVar;
     int choice;
