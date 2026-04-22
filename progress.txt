@@ -16,5 +16,5 @@ add ban authentication to
 login
 create user
 
-init:
-    sem,shm,mapload
+------------------------------
+correct the user exist logic in bank.cpp

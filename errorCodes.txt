@@ -28,3 +28,10 @@ file errors:
 synchronisation errors:
 301: sem lock error
 302: sem unlock error
+
+Bank errors:
+401: invalid request
+402: invalid user
+403: invalid request ammount
+404: insufficient balance
+405: invalid channel selected

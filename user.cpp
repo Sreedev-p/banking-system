@@ -1,13 +1,15 @@
+//sem0->shmLock sem1->mutex  sem2->req  sem3->result sem4->ack
+//should pass account number in the int channel
 #ifndef COMMON_H
 #define COMMON_H
 #include<sys/sem.h>
 #include<sys/shm.h>
 #include<sys/ipc.h>
 #include<string>
-#define SEM_KEY 1000
+#define SEM_KEY 5555
 #define SHM_KEY 191971
 
-enum OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW,NEW};
+enum OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW,NEW,LOGIN};
 enum channelType{INT,STRING,DOUBLE,EMPTY};
 union semun {
     int val;
@@ -51,13 +53,14 @@ struct sharedClasses{
     error ERROR;
 
     bool req;//request active or not
+    bool status;//tells if operation completed or not
+    bool success;//tells if operation failed or nor
+
     channelType channel;
     int intChannel;
     char stringChannel[100];
     double doubleChannel;
     OperationType operation;//tell bank what operation the user is reuesting
-    bool status;//tells if operation completed or not
-    bool success;//tells if operation failed or nor
 };
 
 #endif
@@ -73,8 +76,8 @@ sharedClasses* request;
 void processAnimation(int num,float speed);
 int homepage();
 void user_init();
-void unlock(int semNum);
-void lock(int semNum);
+void post(int semNum);
+void wait(int semNum);
 void w(int semNum);
 
 class userDetails{
@@ -125,11 +128,28 @@ class user: private userDetails{
                 password = word;
             }
         }
-        bool authenticate(int accountNo,string pin){
-            if(this->accountNo == accountNo){
-                if(this->pin == pin)
-                    return true;
+        bool authenticate(int accountNo,string tempPin){
+            wait(0);//lock shared memory
+            wait(1);//mutex => write lock
+            request->channel= STRING;
+            request->operation = LOGIN;
+            strcpy(request->stringChannel,tempPin.c_str());
+            request->intChannel =accountNo;
+            post(1);
+            post(2);//signal bank process
+            wait(3);//wait for bank to complete
+            wait(1);//mutex
+            bool success =request->success;
+            post(1);//unloc mutex
+            post(4);//ack the bank
+            post(0);//exit shm
+            this->accountNo= accountNo;
+            this->pin =tempPin;
+            if(success){
+                cout<<"Allowed";
+                return true;
             }
+            cout<<"Denied";
             return false;
         }
         int assignAccountNumber(){
@@ -141,25 +161,30 @@ class user: private userDetails{
         }
     public:
         bool deposit(double amount){
-            lock(0);
+            wait(0);//enter shm
+            wait(1);//lock mutex
+            cout<<"1";
             request->operation = DEPOSIT;
             new(&(request->deposit)) depositClass(amount,this->accountNo);//writes amount and account no to shared memory deposit class
             request->req= true;
             request->status=false;
             request->success=false;
             request->channel= DOUBLE;
-            unlock(1);
-            while(!request->status);
-            lock(1);
-            unlock(0);
-            unlock(1);
-            if(request->success){//if authenticated deposits amount and bank updated balance
-                return true;
-            }
-            else{
-                //check error code given
-                return false;
-            }
+
+            request->intChannel =accountNo;
+            cout<<"2";
+            post(1);//unlock mutex
+            post(2);//signal bank
+            wait(3);//wait for bank to finish
+            wait(1);//lock mutex
+            cout<<"3";
+            bool success= request->success;
+            post(1);//unlock mutex
+            post(4);//signal bank of read
+            post(0);//exit shm
+            if(success)cout<<"$"<<endl;
+            cout<<request->ERROR.errorCode<<endl;
+            return success;
             } 
         void test(int val){
             this->accountNo =val;
@@ -187,7 +212,7 @@ class user: private userDetails{
         return choice;
         }
         bool login(int accountNo,string pin){
-            authenticate(this->accountNo,this->pin);
+            return authenticate(accountNo,pin);
         }
         bool login(){
             int accountNoVar;
@@ -271,42 +296,44 @@ int main(){
     current.test(12789);
     int choice;
     home:
-    // choice =homepage();
-    // bool isLogin,isUser;
+    choice =homepage();
+    bool isLogin,isUser;
     //--------------------- login ----------------------
-    // if(choice == 1){
-    //     if(!current.login()){
-    //         cout<<"something went wrong !"<<endl;
-    //         sleep(1);
-    //         return 0;
-    //     }
-    // }
-    // else if( choice == 2){
-    //     if(!current.createAccount()){
-    //         cout<<"Something went wrong"<<endl;
-    //         return 0;
-    //     }
-    //     if(!current.login()){
-    //         cout<<"Something went wrong"<<endl;
-    //         return 0;
-    //     }
-    // }
-    // else{
-    //     cout<<"Thank you"<<endl;
-    //     return 0;
-    // }
+    if(choice == 1){
+        bool isLogin=current.login();
+        if(! isLogin){
+            cout<<"something went wrong !"<<endl;
+            sleep(1);
+            return 0;
+        }
+    }
+    else if( choice == 2){
+        if(!current.createAccount()){
+            cout<<"Something went wrong"<<endl;
+            return 0;
+        }
+        if(!current.login()){
+            cout<<"Something went wrong"<<endl;
+            return 0;
+        }
+    }
+    else{
+        cout<<"Thank you"<<endl;
+        return 0;
+    }
 
     //------------------  services ----------------------
+    while(1){
     choice = current.servicePage();
-    if(choice == 1){
-        double amount;
-        cout<<"Enter Amount: ";cin>>amount;
-        if(current.deposit(amount)){
-            cout<<"Deposite successfull "<<endl;
+        if(choice == 1){
+            double amount;
+            cout<<"Enter Amount: ";cin>>amount;
+            if(current.deposit(amount)){
+                cout<<"Deposite successfull "<<endl;
+            }
+           else cout<<"Deposite failed"<<endl;
         }
-        else cout<<"Deposite failed"<<endl;
     }
-    strcpy(request->stringChannel,"Hello are you there");
 
 }
 
@@ -316,18 +343,18 @@ void user_init(){
     void *ptr =shmat(shmId,NULL,0);
     request = static_cast<sharedClasses*>(ptr);
 
-    semId= semget((key_t)SEM_KEY,2,0666|IPC_CREAT);
+    semId= semget((key_t)SEM_KEY,5,0666|IPC_CREAT);
     return;
 }
 
-void lock(int semNum){
+void wait(int semNum){
     sembuf sb={semNum,-1,SEM_UNDO};
     if(semop(semId,&sb,1)== -1){
         localERROR.errorCode= 301;
         return;
     }
 }
-void unlock(int semNum){
+void post(int semNum){
     sembuf sb={semNum,1,SEM_UNDO};
     if(semop(semId,&sb,1)== -1){
         localERROR.errorCode= 302;
