@@ -1,1 +1,30 @@
+system init errors:
+
+001:semaphore creation failed
+002:semaphore init failed(SETVAL)
+004:shared memory creation failed(shmget)
+008:shared memory attachment failed(shmat)
+003:1+2
+005:4+1
+006:4+2
+007:4+2+1
+009:8+1
+010:8+2
+011:8+1+2
+012:8+4
+013:8+4+1
+014:8+4+2
+015:8+4+2+1
+
+
+credential errors:
+101: Password length less than 5
+
+
+file errors:
 201:unable to open files
+
+
+synchronisation errors:
+301: sem lock error
+302: sem unlock error

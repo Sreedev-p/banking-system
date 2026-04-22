@@ -1,46 +1,48 @@
-#include<iostream>
-#include<string>
-#include<unistd.h>
-#include<regex>
-#include<sys/ipc.h>
-#include<sys/shm.h>
-#include<new>
+#ifndef COMMON_H
+#define COMMON_H
 #include<sys/sem.h>
-#define semKey 124563
-#define key 191971;
-using namespace std;
+#include<sys/shm.h>
+#include<sys/ipc.h>
+#include<string>
+#define SEM_KEY 1000
+#define SHM_KEY 191971
+
 enum OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW,NEW};
 enum channelType{INT,STRING,DOUBLE,EMPTY};
+union semun {
+    int val;
+    struct semid_ds *buf;
+    unsigned short *array;
+};
 class error{
     public:
     int errorCode;
-}ERROR;
-//used to authenticate deposites
+}localERROR;
 class depositClass{
-    private:
+    public:
         double amount;
         int accountNo;
-    public:
     depositClass(double amount, int accountNo){
         this->amount = amount;
         this->accountNo = accountNo;
     }
     depositClass(){
         amount =-1;//so that defaultly returns false (since amount =-1);
+        accountNo =0;
     }
 };
-//to authenticate withdrawals
 class withdrawClass{
     private:
         double amount;
         int accountNo;
     public:
+    withdrawClass(){
+        amount=-1;
+        accountNo=0;
+    }
     withdrawClass(double amount,int accountNo){
         this->amount = amount;
         this->accountNo = accountNo;
-    }
-    withdrawClass(){
-        amount =-1;//so that defaultly returns false (since amount =-1);
     }
 };
 struct sharedClasses{
@@ -57,6 +59,24 @@ struct sharedClasses{
     bool status;//tells if operation completed or not
     bool success;//tells if operation failed or nor
 };
+
+#endif
+#include<iostream>
+#include<unistd.h>
+#include<regex>
+#include<new>
+#include<cstring>
+using namespace std;
+int shmId,semId;
+sharedClasses* request;
+
+void processAnimation(int num,float speed);
+int homepage();
+void user_init();
+void unlock(int semNum);
+void lock(int semNum);
+void w(int semNum);
+
 class userDetails{
     protected:  
         string name;
@@ -81,7 +101,7 @@ class userDetails{
         userDetails(){
             name = "";
         }
-        ~userDetails(){
+        virtual ~userDetails(){
 
         }
 };
@@ -96,30 +116,9 @@ class user: private userDetails{
             return false;
             return std::stoll(pinVar) > 0;//chec if pinVar contained int is +ve
         }
-        bool deposit(double amount,sharedClasses* request){
-            new(&(request->deposit)) depositClass(amount,this->accountNo);//writes amount and account no to shared memory deposit class
-            request->operation = DEPOSIT;
-            if(request->status){//if authenticated deposits amount and bank updated balance
-                return true;
-            }
-            else{
-                //check error code given
-                return false;
-            }
-        }
-        bool withdraw(double amount,sharedClasses* request){
-            new(&(request->withdraw)) withdrawClass(amount,this->accountNo);//writes amount and account no to shared memory withdraw class
-            if(request->status){//if authenticated withdraws amount balance will be updated
-                return true;
-            }
-            else{
-                //check error code
-                return false;
-            }
-        }
         bool setPassword(string word){
             if(word.length()<5){
-                ERROR.errorCode=100;
+                localERROR.errorCode=101;
                 return false;
             }
             else{
@@ -133,7 +132,7 @@ class user: private userDetails{
             }
             return false;
         }
-        int assignAccountNumber(sharedClasses* request){
+        int assignAccountNumber(){
             request->req =true;
             request->status=false;
             request->operation= NEW;//to get assigned new account number from bank
@@ -141,6 +140,52 @@ class user: private userDetails{
 
         }
     public:
+        bool deposit(double amount){
+            lock(0);
+            request->operation = DEPOSIT;
+            new(&(request->deposit)) depositClass(amount,this->accountNo);//writes amount and account no to shared memory deposit class
+            request->req= true;
+            request->status=false;
+            request->success=false;
+            request->channel= DOUBLE;
+            unlock(1);
+            while(!request->status);
+            lock(1);
+            unlock(0);
+            unlock(1);
+            if(request->success){//if authenticated deposits amount and bank updated balance
+                return true;
+            }
+            else{
+                //check error code given
+                return false;
+            }
+            } 
+        void test(int val){
+            this->accountNo =val;
+        }   
+        bool withdraw(double amount,sharedClasses* request){
+            new(&(request->withdraw)) withdrawClass(amount,this->accountNo);//writes amount and account no to shared memory withdraw class
+            if(request->status){//if authenticated withdraws amount balance will be updated
+                return true;
+            }
+            else{
+                //check error code
+                return false;
+            }
+        }
+        int servicePage(){
+        int choice;
+        cout<<"Welcome "<<name<<endl;
+        cout<<"-------------------------"<<endl;
+        cout<<"1. Deposit "<<endl;
+        cout<<"2. Withdraw "<<endl;
+        cout<<"3. Show Details"<<endl;
+        cout<<"4. Quit"<<endl;
+        cout<<"Enter your choice"<<endl;
+        cin>>choice;
+        return choice;
+        }
         bool login(int accountNo,string pin){
             authenticate(this->accountNo,this->pin);
         }
@@ -168,6 +213,8 @@ class user: private userDetails{
             }
             name = nameVar;
             age = ageVar;
+
+            
             accountNo = assignAccountNumber();
             processAnimation(4,10);
             cout<<"Congradulations you have Successfully created an account"<<endl;
@@ -216,13 +263,82 @@ class user: private userDetails{
             cout<<endl;     
         }
 };
-void processAnimation(int num,float speed){//num = no of dots speed is in milliseconds
-    int mseconds = speed*1000;//conv to ms for usleep(microseconds)
-    if(mseconds < 0)
+
+
+int main(){
+    user_init();
+    user current;
+    current.test(12789);
+    int choice;
+    home:
+    // choice =homepage();
+    // bool isLogin,isUser;
+    //--------------------- login ----------------------
+    // if(choice == 1){
+    //     if(!current.login()){
+    //         cout<<"something went wrong !"<<endl;
+    //         sleep(1);
+    //         return 0;
+    //     }
+    // }
+    // else if( choice == 2){
+    //     if(!current.createAccount()){
+    //         cout<<"Something went wrong"<<endl;
+    //         return 0;
+    //     }
+    //     if(!current.login()){
+    //         cout<<"Something went wrong"<<endl;
+    //         return 0;
+    //     }
+    // }
+    // else{
+    //     cout<<"Thank you"<<endl;
+    //     return 0;
+    // }
+
+    //------------------  services ----------------------
+    choice = current.servicePage();
+    if(choice == 1){
+        double amount;
+        cout<<"Enter Amount: ";cin>>amount;
+        if(current.deposit(amount)){
+            cout<<"Deposite successfull "<<endl;
+        }
+        else cout<<"Deposite failed"<<endl;
+    }
+    strcpy(request->stringChannel,"Hello are you there");
+
+}
+
+
+void user_init(){
+    shmId = shmget((key_t)SHM_KEY,sizeof(sharedClasses),0666);
+    void *ptr =shmat(shmId,NULL,0);
+    request = static_cast<sharedClasses*>(ptr);
+
+    semId= semget((key_t)SEM_KEY,2,0666|IPC_CREAT);
+    return;
+}
+
+void lock(int semNum){
+    sembuf sb={semNum,-1,SEM_UNDO};
+    if(semop(semId,&sb,1)== -1){
+        localERROR.errorCode= 301;
         return;
-    for(int i = 0; i < num; i++) {
-        cout << "." << flush; 
-        usleep(mseconds);       
+    }
+}
+void unlock(int semNum){
+    sembuf sb={semNum,1,SEM_UNDO};
+    if(semop(semId,&sb,1)== -1){
+        localERROR.errorCode= 302;
+        return;
+    }
+}
+void w(int semNum){
+    sembuf sb={semNum,0,SEM_UNDO};
+    if(semop(semId,&sb,1)== -1){
+        localERROR.errorCode= 301;
+        return;
     }
 }
 int homepage(){
@@ -232,24 +348,17 @@ int homepage(){
     cout<<"To Login enter 1"<<endl;
     cout<<"Dont have an account? Enter 2"<<endl;
     cout<<"To quit enter 3"<<endl;
-    cout<<"Enter your choice";
+    cout<<"Enter your choice"<<endl;
     cin>>choice;
     return choice;
 }
-
-int main(){
-    user userVar;
-    int choice;
-    home:
-    choice =homepage();
-    switch(choice){
-        case 1:
-            userVar.login();
-        case 2:
-            userVar.createAccount();
-        case 3:
-            return 0;
-        default:
-            cout<<"Enter a valid choice"<<endl;
+void processAnimation(int num,float speed){
+    //num = no of dots speed is in milliseconds
+    int mseconds = speed*1000;//conv to ms for usleep(microseconds)
+    if(mseconds < 0)
+        return;
+    for(int i = 0; i < num; i++) {
+        cout << "." << flush; 
+        usleep(mseconds);       
     }
 }

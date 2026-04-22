@@ -4,8 +4,8 @@
 #include<sys/shm.h>
 #include<sys/ipc.h>
 #include<string>
-#define semKey 124563
-#define key 191971
+#define SEM_KEY 1000
+#define SHM_KEY 191971
 
 enum OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW,NEW};
 enum channelType{INT,STRING,DOUBLE,EMPTY};
@@ -19,10 +19,9 @@ class error{
     int errorCode;
 }localERROR;
 class depositClass{
-    private:
+    public:
         double amount;
         int accountNo;
-    public:
     depositClass(double amount, int accountNo){
         this->amount = amount;
         this->accountNo = accountNo;
@@ -41,7 +40,7 @@ class withdrawClass{
         amount=-1;
         accountNo=0;
     }
-    withdrawClass(double amount,double balance, int accountNo){
+    withdrawClass(double amount,int accountNo){
         this->amount = amount;
         this->accountNo = accountNo;
     }
@@ -63,15 +62,27 @@ struct sharedClasses{
 
 #endif
 #include<iostream>
+#include<unistd.h>
 #include<new>
 #include<fstream>
 #include<sstream>
 #include<vector>
 #include<unordered_map>
+#include<errno.h>
+#include<string.h>
 
 using namespace std;
 
+int shmId,semId;
+class userDetails;
 
+void processAnimation(int num,float speed);
+void system_init(sharedClasses* &request);
+void printAllUsers(const unordered_map<int, userDetails> &bankMap);
+void loadMap(unordered_map<int ,userDetails> &map);
+void wait(int semNum);
+void post(int semNum);
+void w(int semNum);
 class userDetails{
     protected:  
         string name;
@@ -106,6 +117,39 @@ class userDetails{
 
         }
 };
+
+int main(){
+    unordered_map<int,userDetails> users;
+    sharedClasses *request;
+    system_init(request);//init shared mem and semaphores
+    cout<<localERROR.errorCode<<endl;
+
+    cout<<"Initialising system";
+    processAnimation(10,150);cout<<endl;sleep(1);
+
+    loadMap(users);//init the hashMap
+    cout<<"Loading user details";
+    processAnimation(10,150);sleep(1);cout<<endl;
+    cout<<"System ready for use "<<endl;
+    
+    wait(1);
+    request -> status = true;
+    if(request->req){
+        cout<<request->deposit.accountNo<<" Wants to deposit "<<request->deposit.amount<<" Rs"<<endl;
+        int app;
+        cin>>app;
+        if(app == 1){
+            request->success =true;
+        }
+        else request->success=false;
+    }
+    post(1);
+    return 0;
+}
+
+
+
+
 void loadMap(unordered_map<int ,userDetails> &map){
     ifstream file("db.txt");
     if(!file.is_open()){
@@ -141,20 +185,24 @@ void printAllUsers(const unordered_map<int, userDetails> &bankMap) {
         << endl;
     }
 }
-void system_init(sharedClasses* &request,int &shmId,int &semId){
+void system_init(sharedClasses* &request){
     localERROR.errorCode =0;    //reset error value
-    semId= semget((key_t)semKey,1,0666|IPC_CREAT);    //create semaphore
+    semId= semget((key_t)SEM_KEY,2,0666|IPC_CREAT);    //create semaphore
     if(semId==-1){
         localERROR.errorCode |= 1;
     }
     semun arg;     //create a semun union var
     arg.val= 1;
-    if(semctl(semId,0,SETVAL, arg)== -1){
+    if(semctl(semId,0,SETVAL, arg)== -1){ 
+        localERROR.errorCode |= 2;
+    }
+    else{ 
+        arg.val = 0;
+        if(semctl(semId,1,SETVAL, arg)== -1)
         localERROR.errorCode |= 2;
     }
 
-
-    shmId= shmget((key_t)key,sizeof(sharedClasses),0666|IPC_CREAT);    //create and atach to the shared memory
+    shmId= shmget((key_t)SHM_KEY,sizeof(sharedClasses),0666|IPC_CREAT);    //create and atach to the shared memory
     if(shmId == -1){
         localERROR.errorCode |=4;}
     else{
@@ -171,13 +219,45 @@ void system_init(sharedClasses* &request,int &shmId,int &semId){
     request->success=false;
     new(&(request->deposit)) depositClass();
     new(&(request->withdraw)) withdrawClass();
+
+}
+void w(int semNum){
+    sembuf sb={semNum,0,SEM_UNDO};
+    if(semop(semId,&sb,1)== -1){
+        localERROR.errorCode= 301;
+        return;
+    }
+}
+void wait(int semNum) {
+    struct sembuf sb;
+    sb.sem_num = static_cast<unsigned short>(semNum); // Explicit C++ cast
+    sb.sem_op = -1;
+    sb.sem_flg = SEM_UNDO;
+
+    if (semop(semId, &sb, 1) == -1) {
+        perror("Wait Error"); // This will print why it failed
+        localERROR.errorCode = 301;
+    }
 }
 
-int main(){
-    unordered_map<int,userDetails> map;
-    sharedClasses *request;
-    int shmId,semId;
-    system_init(request,shmId,semId);//init shared mem and semaphores
-    loadMap(map);//init the hashMap
+void post(int semNum) {
+    struct sembuf sb;
+    sb.sem_num = static_cast<unsigned short>(semNum);
+    sb.sem_op = 1;
+    sb.sem_flg = SEM_UNDO;
 
+    if (semop(semId, &sb, 1) == -1) {
+        perror("Post Error");
+        localERROR.errorCode = 302;
+    }
+}
+void processAnimation(int num,float speed){
+    //num = no of dots speed is in milliseconds
+    int mseconds = speed*1000;//conv to ms for usleep(microseconds)
+    if(mseconds < 0)
+        return;
+    for(int i = 0; i < num; i++) {
+        cout << "." << flush; 
+        usleep(mseconds);       
+    }
 }
