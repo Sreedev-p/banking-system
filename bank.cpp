@@ -5,7 +5,7 @@
 #include<sys/ipc.h>
 #include<string>
 #define SEM_KEY 5555
-#define SHM_KEY 191971
+#define SHM_KEY 5555
 
 enum OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW,NEW,LOGIN};
 enum channelType{INT,STRING,DOUBLE,EMPTY};
@@ -49,9 +49,6 @@ struct sharedClasses{
     depositClass deposit;
     withdrawClass withdraw;
     error ERROR;
-
-    bool req;//request active or not
-    bool status;//tells if operation completed or not
     bool success;//tells if operation failed or nor
 
     channelType channel;
@@ -138,7 +135,6 @@ int main(){
     start: 
     wait(2); // wait for user requests 
     wait(1);// lock the mutex
-    request->status =true;// means started working on it
     OperationType work = request->operation;
     channelType channel =request->channel;
     int accNo =request->intChannel;
@@ -167,14 +163,12 @@ int main(){
         cout<<"Deposit\n"<<"-----------------------"<<endl;
         accNo =request->deposit.accountNo;
         cout<<"User: "<<accNo<<" Amount: "<<amount<<endl;
-        cin.ignore(1000, '\n');
         cin>>permission;
         if(permission =='y' || permission == 'Y')request->success =true;
         else request->success =false;
-        request->req= false;
 
-        post(1);//unlock mutex
         post(3);//signal user
+        post(1);//unlock mutex
         wait(4);//wait user to finish
         goto start;
     }
@@ -199,9 +193,8 @@ int main(){
             cout<<"Refused"<<endl;
             request->success =false;
         }
-        request->req =false;
-        post(1);//exit mutex
         post(3);//signal user
+        post(1);//exit mutex
         wait(4);//wait for user to read result
         goto start;
     }
@@ -274,10 +267,9 @@ void system_init(sharedClasses* &request){
             }
         }
     }
-
+//<--------------------------------   SHM INIT   ------------------------------------>
     shmId= shmget((key_t)SHM_KEY,sizeof(sharedClasses),0666|IPC_CREAT);    //create and atach to the shared memory
-    if(shmId == -1){
-        localERROR.errorCode |=4;}
+    if(shmId == -1) localERROR.errorCode |=4;
     else{
         void* ptr =shmat(shmId,NULL,0);
         if(ptr == (void*)-1)
@@ -285,10 +277,9 @@ void system_init(sharedClasses* &request){
         request = static_cast<sharedClasses*>(ptr);
     }
 
-    request->req=false;    //initialise sharedStruct variables
+   //initialise sharedStruct variables
     request->channel=EMPTY;
     request->operation=NONE;
-    request->status=false;
     request->success=false;
     new(&(request->deposit)) depositClass();
     new(&(request->withdraw)) withdrawClass();

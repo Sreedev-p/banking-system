@@ -7,7 +7,7 @@
 #include<sys/ipc.h>
 #include<string>
 #define SEM_KEY 5555
-#define SHM_KEY 191971
+#define SHM_KEY 5555
 
 enum OperationType { NONE, DEPOSIT, WITHDRAW ,SHOW,NEW,LOGIN};
 enum channelType{INT,STRING,DOUBLE,EMPTY};
@@ -20,6 +20,7 @@ class error{
     public:
     int errorCode;
 }localERROR;
+
 class depositClass{
     public:
         double amount;
@@ -51,9 +52,6 @@ struct sharedClasses{
     depositClass deposit;
     withdrawClass withdraw;
     error ERROR;
-
-    bool req;//request active or not
-    bool status;//tells if operation completed or not
     bool success;//tells if operation failed or nor
 
     channelType channel;
@@ -73,6 +71,7 @@ using namespace std;
 int shmId,semId;
 sharedClasses* request;
 
+void flushShm();
 void processAnimation(int num,float speed);
 int homepage();
 void user_init();
@@ -111,6 +110,17 @@ class userDetails{
 class user: private userDetails{
     private:
         bool setPin(string pinVar){
+            wait(0);//enter shm
+            wait(1);//mutex lock
+            // -> write into shm
+            wait(1);
+            post(2);//signal bank;
+            wait(3);//wait for bank to finish
+            wait(1);//lockk mutex
+            //read from shm
+            post(1);//unlock muttex
+            post(4);//signal bank
+            post(0);//exit shm
             const regex pattern("^[0-9]+$");//check if pinVar contains only digits
             if(pinVar.length()!= 4 ){//chec pin lenght == 4
                 return false;
@@ -120,6 +130,17 @@ class user: private userDetails{
             return std::stoll(pinVar) > 0;//chec if pinVar contained int is +ve
         }
         bool setPassword(string word){
+            wait(0);//enter shm
+            wait(1);//mutex lock
+            // -> write into shm
+            wait(1);
+            post(2);//signal bank;
+            wait(3);//wait for bank to finish
+            wait(1);//lockk mutex
+            //read from shm
+            post(1);//unlock muttex
+            post(4);//signal bank
+            post(0);//exit shm
             if(word.length()<5){
                 localERROR.errorCode=101;
                 return false;
@@ -131,30 +152,39 @@ class user: private userDetails{
         bool authenticate(int accountNo,string tempPin){
             wait(0);//lock shared memory
             wait(1);//mutex => write lock
+            flushShm();
             request->channel= STRING;
             request->operation = LOGIN;
             strcpy(request->stringChannel,tempPin.c_str());
             request->intChannel =accountNo;
-            post(1);
             post(2);//signal bank process
+            post(1);
             wait(3);//wait for bank to complete
             wait(1);//mutex
             bool success =request->success;
+            cout<<success<<endl;
             post(1);//unloc mutex
             post(4);//ack the bank
             post(0);//exit shm
+            if(success){
             this->accountNo= accountNo;
             this->pin =tempPin;
-            if(success){
-                cout<<"Allowed";
-                return true;
+            return success;
             }
-            cout<<"Denied";
-            return false;
+            return success;
         }
         int assignAccountNumber(){
-            request->req =true;
-            request->status=false;
+            wait(0);//enter shm
+            wait(1);//mutex lock
+            // -> write into shm
+            wait(1);
+            post(2);//signal bank;
+            wait(3);//wait for bank to finish
+            wait(1);//lockk mutex
+            //read from shm
+            post(1);//unlock muttex
+            post(4);//signal bank
+            post(0);//exit shm
             request->operation= NEW;//to get assigned new account number from bank
             //wait for status to be true;
 
@@ -163,41 +193,41 @@ class user: private userDetails{
         bool deposit(double amount){
             wait(0);//enter shm
             wait(1);//lock mutex
-            cout<<"1";
+            flushShm();
             request->operation = DEPOSIT;
             new(&(request->deposit)) depositClass(amount,this->accountNo);//writes amount and account no to shared memory deposit class
-            request->req= true;
-            request->status=false;
-            request->success=false;
-            request->channel= DOUBLE;
-
+            request->channel= INT;
             request->intChannel =accountNo;
-            cout<<"2";
-            post(1);//unlock mutex
             post(2);//signal bank
+            post(1);//unlock mutex
             wait(3);//wait for bank to finish
             wait(1);//lock mutex
-            cout<<"3";
             bool success= request->success;
             post(1);//unlock mutex
             post(4);//signal bank of read
             post(0);//exit shm
-            if(success)cout<<"$"<<endl;
-            cout<<request->ERROR.errorCode<<endl;
             return success;
             } 
-        void test(int val){
-            this->accountNo =val;
-        }   
-        bool withdraw(double amount,sharedClasses* request){
-            new(&(request->withdraw)) withdrawClass(amount,this->accountNo);//writes amount and account no to shared memory withdraw class
-            if(request->status){//if authenticated withdraws amount balance will be updated
-                return true;
-            }
-            else{
-                //check error code
-                return false;
-            }
+ 
+        bool withdraw(double amount){
+            wait(0);//enter shm
+            wait(1);//mutex lock
+            // -> write into shm
+            flushShm();
+            new(&(request->withdraw)) withdrawClass(amount,this->accountNo);
+            request->operation =WITHDRAW;
+            request->channel =INT;
+            request->intChannel =this->accountNo;
+            wait(1);
+            post(2);//signal bank;
+            wait(3);//wait for bank to finish
+            wait(1);//lockk mutex
+            //read from shm
+            bool success =request->success;
+            post(1);//unlock muttex
+            post(4);//signal bank
+            post(0);//exit shm//writes amount and account no to shared memory withdraw class
+            return success;
         }
         int servicePage(){
         int choice;
@@ -293,7 +323,6 @@ class user: private userDetails{
 int main(){
     user_init();
     user current;
-    current.test(12789);
     int choice;
     home:
     choice =homepage();
@@ -327,11 +356,21 @@ int main(){
     choice = current.servicePage();
         if(choice == 1){
             double amount;
+            cout<<"DEPOSIT: "<<endl;
             cout<<"Enter Amount: ";cin>>amount;
-            if(current.deposit(amount)){
-                cout<<"Deposite successfull "<<endl;
-            }
-           else cout<<"Deposite failed"<<endl;
+            if(current.deposit(amount))cout<<"Deposite successfull "<<endl;
+            else cout<<"Deposite failed"<<endl;
+        }
+        else if(choice == 2){
+            double amount;
+            cout<<"WITHDRAW: "<<endl;
+            cout<<"Enter amount: ";cin>> amount;
+            if(current.withdraw(amount))cout<<"Withdraw Successfull"<<endl;
+            else cout<<"Withdraw failed "<<endl;
+            sleep(1);
+        }
+        else if(choice == 4){
+            return 0;
         }
     }
 
@@ -343,10 +382,15 @@ void user_init(){
     void *ptr =shmat(shmId,NULL,0);
     request = static_cast<sharedClasses*>(ptr);
 
-    semId= semget((key_t)SEM_KEY,5,0666|IPC_CREAT);
+    semId= semget((key_t)SEM_KEY,5,0666);
     return;
 }
-
+void flushShm(){
+    request->ERROR.errorCode=0;
+    request->success =false;
+    request->channel =EMPTY;
+    request->operation =NONE;
+}
 void wait(int semNum){
     sembuf sb={semNum,-1,SEM_UNDO};
     if(semop(semId,&sb,1)== -1){
